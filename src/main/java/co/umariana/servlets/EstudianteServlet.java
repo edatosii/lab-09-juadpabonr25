@@ -29,22 +29,6 @@ import javax.servlet.http.HttpServletResponse;
  *   accion=actualizar   parámetros: id, nombre, correo, semestre
  *   accion=eliminar     parámetro:  id
  *   cualquier otra accion            sendError(400)
- *
- *   crear:       1) mensaje = validar(nombre, correo, semestre)
- *                2) si hay mensaje: setAttribute("error", mensaje) y forward a formulario.jsp
- *                3) dao.registrar(...); si devuelve false (correo repetido):
- *                   setAttribute("error", <mensaje>) y forward a formulario.jsp
- *                4) si todo sale bien: response.sendRedirect("estudiantes")
- *   actualizar:  igual que crear, pero ANTES de validar: si el id no es un número o
- *                no existe (dao.buscarPorId devuelve null): sendError(404)
- *   eliminar:    si el id no es un número o dao.eliminar devuelve false: sendError(404);
- *                si no: sendRedirect("estudiantes")
- *
- * El nombre y el correo se guardan sin espacios al inicio/final (trim()).
- *
- * YA están resueltos (úselos como modelo): GET accion=nuevo y POST accion=crear.
- *
- * INSTRUCCIONES: complete los "TODO". NO modifique las pruebas.
  */
 @WebServlet("/estudiantes")
 public class EstudianteServlet extends HttpServlet {
@@ -77,6 +61,19 @@ public class EstudianteServlet extends HttpServlet {
         return null;
     }
 
+    /**
+     * Ayuda: convierte el parámetro "id" a número.
+     *
+     * @return el id como Integer, o null si no viene o no es un número
+     */
+    private static Integer leerId(HttpServletRequest request) {
+        try {
+            return Integer.parseInt(request.getParameter("id").trim());
+        } catch (NumberFormatException | NullPointerException e) {
+            return null;
+        }
+    }
+
     // =====================================================================
     // ETAPA 6. Mostrar (GET)
     // =====================================================================
@@ -92,14 +89,28 @@ public class EstudianteServlet extends HttpServlet {
             return;
         }
 
-        // TODO Etapa 6: según 'accion' (ver CONTRATO arriba), lo que falta:
-        //   - null o "listar": setAttribute("estudiantes", ...) y forward a VISTA_LISTAR
-        //   - "editar": convierta "id" a int (cuidado con NumberFormatException), busque con el DAO,
-        //               setAttribute("estudiante", ...) y forward a VISTA_FORMULARIO;
-        //               si no existe: response.sendError(HttpServletResponse.SC_NOT_FOUND)
-        //   - otra: response.sendError(HttpServletResponse.SC_BAD_REQUEST)
-        // Pista: request.getRequestDispatcher(ruta).forward(request, response)
-        throw new UnsupportedOperationException("TODO: doGet");
+        // Listar: sin acción o accion=listar
+        if (accion == null || "listar".equals(accion)) {
+            request.setAttribute("estudiantes", dao.listar());
+            request.getRequestDispatcher(VISTA_LISTAR).forward(request, response);
+            return;
+        }
+
+        // Editar: buscar el estudiante y mostrar el formulario lleno
+        if ("editar".equals(accion)) {
+            Integer id = leerId(request);
+            Estudiante estudiante = (id == null) ? null : dao.buscarPorId(id);
+            if (estudiante == null) {
+                response.sendError(HttpServletResponse.SC_NOT_FOUND);
+                return;
+            }
+            request.setAttribute("estudiante", estudiante);
+            request.getRequestDispatcher(VISTA_FORMULARIO).forward(request, response);
+            return;
+        }
+
+        // Cualquier otra acción
+        response.sendError(HttpServletResponse.SC_BAD_REQUEST);
     }
 
     // =====================================================================
@@ -112,7 +123,7 @@ public class EstudianteServlet extends HttpServlet {
         request.setCharacterEncoding("UTF-8");
         String accion = request.getParameter("accion");
 
-        // YA RESUELTO: "crear" (úselo como modelo para "actualizar").
+        // YA RESUELTO: "crear"
         if ("crear".equals(accion)) {
             String nombre = request.getParameter("nombre");
             String correo = request.getParameter("correo");
@@ -133,10 +144,49 @@ public class EstudianteServlet extends HttpServlet {
             return;
         }
 
-        // TODO Etapa 7: según 'accion' (ver CONTRATO arriba), lo que falta: actualizar, eliminar
-        //   u otra (400).
-        //   Para actualizar construya el objeto con:
-        //       new Estudiante(id, nombre.trim(), correo.trim(), Integer.parseInt(semestre.trim()))
-        throw new UnsupportedOperationException("TODO: doPost");
+        // Actualizar
+        if ("actualizar".equals(accion)) {
+            // ANTES de validar: el id debe ser un número y existir
+            Integer id = leerId(request);
+            Estudiante existente = (id == null) ? null : dao.buscarPorId(id);
+            if (existente == null) {
+                response.sendError(HttpServletResponse.SC_NOT_FOUND);
+                return;
+            }
+
+            String nombre = request.getParameter("nombre");
+            String correo = request.getParameter("correo");
+            String semestre = request.getParameter("semestre");
+
+            String error = validar(nombre, correo, semestre);
+            if (error == null) {
+                Estudiante estudiante = new Estudiante(id, nombre.trim(), correo.trim(),
+                                                       Integer.parseInt(semestre.trim()));
+                if (dao.actualizar(estudiante)) {
+                    response.sendRedirect("estudiantes");
+                    return;
+                }
+                error = "No se pudo actualizar el estudiante. Verifique que el correo no esté repetido.";
+            }
+            // Se reenvía el estudiante para que el formulario siga en modo edición
+            request.setAttribute("estudiante", existente);
+            request.setAttribute("error", error);
+            request.getRequestDispatcher(VISTA_FORMULARIO).forward(request, response);
+            return;
+        }
+
+        // Eliminar
+        if ("eliminar".equals(accion)) {
+            Integer id = leerId(request);
+            if (id == null || !dao.eliminar(id)) {
+                response.sendError(HttpServletResponse.SC_NOT_FOUND);
+                return;
+            }
+            response.sendRedirect("estudiantes");
+            return;
+        }
+
+        // Cualquier otra acción
+        response.sendError(HttpServletResponse.SC_BAD_REQUEST);
     }
 }
